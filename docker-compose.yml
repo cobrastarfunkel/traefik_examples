@@ -1,0 +1,61 @@
+version: "3.9"
+services:
+  traefik:
+    image: traefik:v2.4.8
+    ports:
+      - "80:80"
+      - "8080:8080"
+    command:
+      - --providers.docker=true
+      - --providers.docker.swarmMode=true
+      - --api.insecure=true
+      - --entrypoints.web.address=:80
+      - --api.dashboard=true # see https://docs.traefik.io/v2.0/operations/dashboard/#secure-mode for how to secure the dashboard
+      - --api.debug=true # enable additional endpoints for debugging and profiling
+      - --log.level=DEBUG # debug while we get it working, for more levels/info see https://docs.traefik.io/observability/logs/
+      - --log.format=json
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=proxy
+        - traefik.http.services.traefik-public.loadbalancer.server.port=8080
+        - traefik.http.routers.api.service=api@internal
+    networks:
+      - proxy
+  whoami:
+    image: traefik/whoami
+    deploy:
+      mode: replicated
+      replicas: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=proxy
+        - traefik.http.routers.whoami.rule=Host(`192.168.0.218`) && Path(`/whoami`)
+        - traefik.http.middlewares.whoami.stripprefix.prefixes=/whoami
+        - traefik.http.routers.whoami.entrypoints=web
+        - traefik.http.services.whoami.loadbalancer.server.port=80
+    networks:
+      - proxy
+  nginx:
+    image: nginx
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - traefik.http.services.nginx.loadbalancer.server.port=80
+        - traefik.enable=true
+        - traefik.http.routers.nginx.rule=Host(`192.168.0.218`) && Path(`/nginx`)
+        - traefik.http.middlewares.nginx.stripprefix.prefixes=/nginx
+        - traefik.http.routers.nginx.entrypoints=web
+        - traefik.http.routers.nginx.middlewares=nginx
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
